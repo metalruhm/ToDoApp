@@ -1,6 +1,6 @@
 # API仕様書
 
-> ステータス: **初稿（AI作成・レビュー待ち）**
+> ステータス: **自分レビュー済**
 > 関連: [requirements.md](requirements.md) / [data-model.md](data-model.md)
 
 ## 1. 共通事項

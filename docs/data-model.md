@@ -1,6 +1,6 @@
 # データモデル設計書
 
-> ステータス: **初稿（AI作成・レビュー待ち）**
+> ステータス: **自分レビュー済**
 > 関連: [requirements.md](requirements.md) / [architecture.md](architecture.md) / [api-spec.md](api-spec.md)
 
 ## 1. エンティティ
