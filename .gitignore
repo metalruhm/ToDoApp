@@ -1,0 +1,21 @@
+# OS / エディタ
+.DS_Store
+.vscode/
+
+# 秘密情報
+.env
+.env.local
+
+# Next.js / Node
+node_modules/
+.next/
+
+# Go
+*.test
+*.out
+
+# DB
+*.db
+
+# work
+.work
