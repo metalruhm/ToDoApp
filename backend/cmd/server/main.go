@@ -1,14 +1,18 @@
 package main
 
 import (
-	"fmt"
+	"encoding/json"
 	"log"
 	"net/http"
 )
 
+type healthResponse struct {
+	Status string `json:"status"`
+}
+
 func healthHandler(w http.ResponseWriter, r *http.Request) {
-	// ここで "ok" を書き込む
-	fmt.Fprint(w, "ok")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(healthResponse{Status: "ok"})
 }
 
 func main() {
