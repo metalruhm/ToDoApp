@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 )
 
 type healthResponse struct {
@@ -16,9 +17,14 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	mux := http.NewServeMux()                    // ルーターを作る
-	mux.HandleFunc("GET /health", healthHandler) // "GET /health" を healthHandler に結びつける
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
 
-	log.Println("server started on :8080")
-	http.ListenAndServe(":8080", mux) // ListenAndServe を呼び、エラーなら log.Fatal
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", healthHandler)
+
+	log.Printf("server started on :%s", port)
+	log.Fatal(http.ListenAndServe(":"+port, mux))
 }
