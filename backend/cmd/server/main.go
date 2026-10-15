@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -14,13 +15,23 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "./todo.db"
+	}
 
-	st := store.NewMemory() // Section 6 で SQLite に差し替える
-	h := handler.NewTodoHandler(st)
+	st, err := store.NewSQLite(dbPath)
+	if err != nil {
+		log.Fatalf("open db: %v", err)
+	}
+	defer st.Close()
+	if err := st.Migrate(context.Background()); err != nil {
+		log.Fatalf("migrate: %v", err)
+	}
 
 	mux := http.NewServeMux()
-	h.Register(mux)
+	handler.NewTodoHandler(st).Register(mux) // handler は変更なし
 
-	log.Printf("server started on :%s", port)
+	log.Printf("server started on :%s (db: %s)", port, dbPath)
 	log.Fatal(http.ListenAndServe(":"+port, mux))
 }
