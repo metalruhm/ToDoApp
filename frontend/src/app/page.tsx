@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Todo } from "@/types/todo";
 import { TodoForm } from "@/components/TodoForm";
 import { TodoList } from "@/components/TodoList";
+import type { TodoStatus } from "@/lib/api";
 import { createTodo, deleteTodo, listTodos, updateTodo } from "@/lib/api";
 
 export default function Home() {
@@ -54,11 +55,23 @@ export default function Home() {
       setTodos((prev) => prev.filter((t) => t.id !== id));
     });
 
-  return (
-    <main>
-      <h1>ToDo</h1>
-      <TodoForm onAdd={addTodo} />
-      {error && <p role="alert">{error}</p>}
+    const [status, setStatus] = useState<TodoStatus>("all");
+
+useEffect(() => {
+  setLoading(true);
+  listTodos(status)
+    .then(setTodos)
+    .catch((e: Error) => setError(e.message))
+    .finally(() => setLoading(false));
+}, [status]); // status が変わるたびに再取得
+
+return (
+  <main className="mx-auto max-w-xl px-4 py-8">
+    <h1 className="mb-6 text-2xl font-bold text-slate-900">ToDo</h1>
+    <TodoForm onAdd={addTodo} />
+      {error && (
+        <p role="alert" className="mt-3 text-sm text-red-600">{error}</p>
+      )}
       {loading ? (
         <p>読み込み中…</p>
       ) : (
