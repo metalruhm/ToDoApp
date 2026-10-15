@@ -33,5 +33,9 @@ func main() {
 	handler.NewTodoHandler(st).Register(mux) // handler は変更なし
 
 	log.Printf("server started on :%s (db: %s)", port, dbPath)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	allowed := os.Getenv("ALLOWED_ORIGIN")
+	if allowed == "" {
+		allowed = "http://localhost:3000"
+	}
+	log.Fatal(http.ListenAndServe(":"+port, handler.CORS(allowed, mux)))
 }
