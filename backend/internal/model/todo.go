@@ -1,3 +1,4 @@
+// Package model はアプリのデータ型と入力検証を持つ。HTTPやDBは知らない。
 package model
 
 import (
@@ -6,6 +7,8 @@ import (
 	"time"
 	"unicode/utf8"
 )
+
+const MaxTitleLength = 100
 
 type Todo struct {
 	ID        int64     `json:"id"`
@@ -21,7 +24,7 @@ var ErrInvalidTitle = errors.New("タイトルは1〜100文字で入力してく
 func NormalizeTitle(s string) (string, error) {
 	t := strings.TrimSpace(s)
 	n := utf8.RuneCountInString(t) // バイト数ではなく文字数
-	if n < 1 || n > 100 {
+	if n < 1 || n > MaxTitleLength {
 		return "", ErrInvalidTitle
 	}
 	return t, nil

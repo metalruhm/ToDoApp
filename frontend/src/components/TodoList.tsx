@@ -9,9 +9,11 @@ type Props = {
 };
 
 export function TodoList({ todos, ...handlers }: Props) {
-  if (todos.length === 0) return <p>タスクがありません</p>;
+  if (todos.length === 0) {
+    return <p className="mt-6 text-center text-slate-500">タスクがありません</p>;
+  }
   return (
-    <ul>
+    <ul className="mt-4 space-y-2">
       {todos.map((todo) => (
         <TodoItem key={todo.id} todo={todo} {...handlers} />
       ))}

@@ -1,81 +1,134 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Todo } from "@/types/todo";
 import { TodoForm } from "@/components/TodoForm";
 import { TodoList } from "@/components/TodoList";
-import type { TodoStatus } from "@/lib/api";
-import { createTodo, deleteTodo, listTodos, updateTodo } from "@/lib/api";
+import { StatusFilter } from "@/components/StatusFilter";
+import {
+  ApiError,
+  createTodo,
+  deleteTodo,
+  listTodos,
+  logout,
+  me,
+  updateTodo,
+  type TodoStatus,
+  type User,
+} from "@/lib/api";
 
 export default function Home() {
-  const [todos, setTodos] = useState<Todo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const [status, setStatus] = useState<TodoStatus>("all");
+  // どの絞り込み条件で取得した結果かを一緒に持つ（条件が変わったら「読み込み中」になる）
+  const [data, setData] = useState<{ status: TodoStatus; todos: Todo[] } | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [user, setUser] = useState<User | null>(null);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    listTodos()
-      .then(setTodos)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []); // [] = 最初の1回だけ実行
+  const loading = !loadFailed && (data === null || data.status !== status);
 
-  // 共通: 成功したらエラーを消し、失敗したらメッセージを出す
-  async function run(action: () => Promise<void>) {
+  const handleError = useCallback(
+    (e: unknown) => {
+      if (e instanceof ApiError && e.status === 401) {
+        router.replace("/login"); // 未ログインならログイン画面へ
+        return;
+      }
+      setError(e instanceof Error ? e.message : "エラーが発生しました");
+    },
+    [router],
+  );
+
+  useEffect(() => {
+    me().then(setUser).catch(handleError);
+  }, [handleError]);
+
+  useEffect(() => {
+    let cancelled = false; // 条件が変わった後に古い応答が届いても無視する
+    listTodos(status)
+      .then((todos) => {
+        if (cancelled) return;
+        setData({ status, todos });
+        setLoadFailed(false);
+        setError("");
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        handleError(e);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [status, reloadKey, handleError]);
+
+  // 変更系の共通処理: 成功したら一覧を取り直す。失敗したらメッセージを出す。
+  async function run(action: () => Promise<unknown>): Promise<boolean> {
     setError("");
     try {
       await action();
+      setReloadKey((k) => k + 1);
+      return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "エラーが発生しました");
+      handleError(e);
+      return false;
     }
   }
 
-  const addTodo = (title: string) =>
-    run(async () => {
-      const created = await createTodo(title);
-      setTodos((prev) => [created, ...prev]);
-    });
+  const addTodo = (title: string) => run(() => createTodo(title));
+  const toggleTodo = (id: number) => {
+    const target = data?.todos.find((t) => t.id === id);
+    if (target) run(() => updateTodo(id, { done: !target.done }));
+  };
+  const editTodo = (id: number, title: string) => run(() => updateTodo(id, { title }));
+  const removeTodo = (id: number) => run(() => deleteTodo(id));
 
-  const toggleTodo = (id: number) =>
-    run(async () => {
-      const target = todos.find((t) => t.id === id);
-      if (!target) return;
-      const updated = await updateTodo(id, { done: !target.done });
-      setTodos((prev) => prev.map((t) => (t.id === id ? updated : t)));
-    });
+  async function handleLogout() {
+    try {
+      await logout();
+    } finally {
+      router.replace("/login");
+    }
+  }
 
-  const editTodo = (id: number, title: string) =>
-    run(async () => {
-      const updated = await updateTodo(id, { title });
-      setTodos((prev) => prev.map((t) => (t.id === id ? updated : t)));
-    });
+  return (
+    <main className="mx-auto w-full max-w-xl px-4 py-8">
+      <header className="mb-6 flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">ToDo</h1>
+        <div className="flex items-center gap-3 text-sm">
+          {user && <span className="truncate text-slate-500">{user.email}</span>}
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="rounded px-2 py-1 text-indigo-600 underline hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            ログアウト
+          </button>
+        </div>
+      </header>
 
-  const removeTodo = (id: number) =>
-    run(async () => {
-      await deleteTodo(id);
-      setTodos((prev) => prev.filter((t) => t.id !== id));
-    });
+      <TodoForm onAdd={addTodo} />
+      <StatusFilter value={status} onChange={setStatus} />
 
-    const [status, setStatus] = useState<TodoStatus>("all");
-
-useEffect(() => {
-  setLoading(true);
-  listTodos(status)
-    .then(setTodos)
-    .catch((e: Error) => setError(e.message))
-    .finally(() => setLoading(false));
-}, [status]); // status が変わるたびに再取得
-
-return (
-  <main className="mx-auto max-w-xl px-4 py-8">
-    <h1 className="mb-6 text-2xl font-bold text-slate-900">ToDo</h1>
-    <TodoForm onAdd={addTodo} />
       {error && (
-        <p role="alert" className="mt-3 text-sm text-red-600">{error}</p>
+        <p role="alert" className="mt-3 text-sm text-red-600">
+          {error}
+        </p>
       )}
+
       {loading ? (
-        <p>読み込み中…</p>
+        <p className="mt-6 text-center text-slate-500">読み込み中…</p>
       ) : (
-        <TodoList todos={todos} onToggle={toggleTodo} onDelete={removeTodo} onEdit={editTodo} />
+        data && (
+          <TodoList
+            todos={data.todos}
+            onToggle={toggleTodo}
+            onDelete={removeTodo}
+            onEdit={editTodo}
+          />
+        )
       )}
     </main>
   );

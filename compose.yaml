@@ -1,0 +1,36 @@
+# 起動: docker compose up --build
+# ポートが使用中のときは、環境変数で変えられる: BACKEND_PORT=18080 FRONTEND_PORT=13000 docker compose up --build
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    environment:
+      PORT: "8080"
+      DB_PATH: /data/todo.db
+      ALLOWED_ORIGIN: http://localhost:${FRONTEND_PORT:-3000}
+      COOKIE_SECURE: "false" # HTTP のローカルでは false
+    volumes:
+      - db-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # ブラウザから見える URL（コンテナ名ではない）
+        NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8080}
+        # /api を使うときの転送先（コンテナ同士はサービス名で通信できる）
+        API_ORIGIN: http://backend:8080
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  db-data:

@@ -4,13 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
+
+	_ "modernc.org/sqlite" // ドライバー登録のためだけに import
+
 	"todoapp/backend/internal/model"
-
-	_ "modernc.org/sqlite" // ドライバー登録のためだけにimport
-
 	"todoapp/backend/migrations"
 )
 
@@ -23,7 +24,11 @@ func NewSQLite(path string) (*SQLite, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1) // SQLiteは書き込みが1つずつ。"database is locked" を避ける
+	db.SetMaxOpenConns(1) // SQLite は書き込みが1つずつ。"database is locked" を避ける
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, err
@@ -33,24 +38,43 @@ func NewSQLite(path string) (*SQLite, error) {
 
 func (s *SQLite) Close() error { return s.db.Close() }
 
-// Migrate は migrations/*.sql をファイル名順に実行する。
+// Migrate は migrations/*.sql をファイル名順に、未実行のものだけ実行する。
 func (s *SQLite) Migrate(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx,
+		`CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY)`); err != nil {
+		return err
+	}
+
 	entries, err := migrations.FS.ReadDir(".")
 	if err != nil {
 		return err
 	}
-	names := make([]string, 0, len(entries))
+	names := []string{}
 	for _, e := range entries {
-		names = append(names, e.Name())
+		if strings.HasSuffix(e.Name(), ".sql") {
+			names = append(names, e.Name())
+		}
 	}
 	sort.Strings(names)
 
 	for _, name := range names {
+		var n int
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM schema_migrations WHERE name = ?`, name).Scan(&n); err != nil {
+			return err
+		}
+		if n > 0 {
+			continue // 実行済み
+		}
 		b, err := migrations.FS.ReadFile(name)
 		if err != nil {
 			return err
 		}
 		if _, err := s.db.ExecContext(ctx, string(b)); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		if _, err := s.db.ExecContext(ctx,
+			`INSERT INTO schema_migrations (name) VALUES (?)`, name); err != nil {
 			return err
 		}
 	}
@@ -84,17 +108,17 @@ func scanTodo(sc scanner) (model.Todo, error) {
 
 func now() string { return time.Now().UTC().Format(time.RFC3339) }
 
-func (s *SQLite) List(ctx context.Context, status string) ([]model.Todo, error) {
-	q := "SELECT " + columns + " FROM todos" // 連結しているのは固定文字列のみ
+func (s *SQLite) List(ctx context.Context, userID int64, status string) ([]model.Todo, error) {
+	q := "SELECT " + columns + " FROM todos WHERE user_id = ?" // 連結しているのは固定文字列のみ
 	switch status {
 	case "active":
-		q += " WHERE done = 0"
+		q += " AND done = 0"
 	case "done":
-		q += " WHERE done = 1"
+		q += " AND done = 1"
 	}
 	q += " ORDER BY created_at DESC, id DESC"
 
-	rows, err := s.db.QueryContext(ctx, q)
+	rows, err := s.db.QueryContext(ctx, q, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -111,8 +135,9 @@ func (s *SQLite) List(ctx context.Context, status string) ([]model.Todo, error) 
 	return todos, rows.Err()
 }
 
-func (s *SQLite) Get(ctx context.Context, id int64) (model.Todo, error) {
-	row := s.db.QueryRowContext(ctx, "SELECT "+columns+" FROM todos WHERE id = ?", id)
+func (s *SQLite) Get(ctx context.Context, userID, id int64) (model.Todo, error) {
+	row := s.db.QueryRowContext(ctx,
+		"SELECT "+columns+" FROM todos WHERE id = ? AND user_id = ?", id, userID)
 	t, err := scanTodo(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Todo{}, ErrNotFound
@@ -120,11 +145,11 @@ func (s *SQLite) Get(ctx context.Context, id int64) (model.Todo, error) {
 	return t, err
 }
 
-func (s *SQLite) Create(ctx context.Context, title string) (model.Todo, error) {
+func (s *SQLite) Create(ctx context.Context, userID int64, title string) (model.Todo, error) {
 	ts := now()
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO todos (title, done, created_at, updated_at) VALUES (?, 0, ?, ?)",
-		title, ts, ts)
+		"INSERT INTO todos (user_id, title, done, created_at, updated_at) VALUES (?, ?, 0, ?, ?)",
+		userID, title, ts, ts)
 	if err != nil {
 		return model.Todo{}, err
 	}
@@ -132,10 +157,10 @@ func (s *SQLite) Create(ctx context.Context, title string) (model.Todo, error) {
 	if err != nil {
 		return model.Todo{}, err
 	}
-	return s.Get(ctx, id)
+	return s.Get(ctx, userID, id)
 }
 
-func (s *SQLite) Update(ctx context.Context, id int64, in UpdateInput) (model.Todo, error) {
+func (s *SQLite) Update(ctx context.Context, userID, id int64, in UpdateInput) (model.Todo, error) {
 	sets := []string{"updated_at = ?"}
 	args := []any{now()}
 	if in.Title != nil {
@@ -150,21 +175,22 @@ func (s *SQLite) Update(ctx context.Context, id int64, in UpdateInput) (model.To
 		sets = append(sets, "done = ?")
 		args = append(args, done)
 	}
-	args = append(args, id)
+	args = append(args, id, userID)
 
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE todos SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
+		"UPDATE todos SET "+strings.Join(sets, ", ")+" WHERE id = ? AND user_id = ?", args...)
 	if err != nil {
 		return model.Todo{}, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return model.Todo{}, ErrNotFound
 	}
-	return s.Get(ctx, id)
+	return s.Get(ctx, userID, id)
 }
 
-func (s *SQLite) Delete(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, "DELETE FROM todos WHERE id = ?", id)
+func (s *SQLite) Delete(ctx context.Context, userID, id int64) error {
+	res, err := s.db.ExecContext(ctx,
+		"DELETE FROM todos WHERE id = ? AND user_id = ?", id, userID)
 	if err != nil {
 		return err
 	}

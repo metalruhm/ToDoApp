@@ -1,3 +1,4 @@
+// Package migrations は SQL マイグレーションファイルをバイナリに埋め込む。
 package migrations
 
 import "embed"

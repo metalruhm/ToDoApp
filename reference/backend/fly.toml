@@ -1,0 +1,32 @@
+# Fly.io 用の設定。app 名は `fly launch --no-deploy` で決まるので、自分の名前に書き換える。
+app = "your-todo-api"
+primary_region = "nrt" # 東京
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  DB_PATH = "/data/todo.db"
+  COOKIE_SECURE = "true" # 本番は HTTPS
+  # /api 中継を使う場合、ブラウザは画面と同じオリジンから呼ぶので CORS は使われない。
+  # 直接つなぐ構成にする場合は、画面の URL を ALLOWED_ORIGIN に設定する。
+
+# SQLite のファイルを、再デプロイしても消えないボリュームに置く
+[mounts]
+  source = "data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"   # アクセスがないときは停止して節約（初回アクセスは遅い）
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "10s"

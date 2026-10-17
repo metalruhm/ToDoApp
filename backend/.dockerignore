@@ -1,0 +1,6 @@
+*.db
+.env
+.env.*
+!.env.example
+cover.out
+*.test

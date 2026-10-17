@@ -17,10 +17,13 @@ export function StatusFilter({ value, onChange }: Props) {
       {OPTIONS.map((o) => (
         <button
           key={o.value}
+          type="button"
           aria-pressed={value === o.value}
           onClick={() => onChange(o.value)}
           className={`rounded-full px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-            value === o.value ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+            value === o.value
+              ? "bg-indigo-600 text-white"
+              : "bg-slate-100 text-slate-700 hover:bg-slate-200"
           }`}
         >
           {o.label}

@@ -1,3 +1,4 @@
+// Package handler は HTTP のリクエスト解析とレスポンス生成を担当する。
 package handler
 
 import (
@@ -20,13 +21,14 @@ func NewTodoHandler(s store.TodoStore) *TodoHandler {
 	return &TodoHandler{store: s}
 }
 
-func (h *TodoHandler) Register(mux *http.ServeMux) {
+// Register はルートを登録する。protect で包んだルートはログイン必須になる。
+func (h *TodoHandler) Register(mux *http.ServeMux, protect func(http.HandlerFunc) http.HandlerFunc) {
 	mux.HandleFunc("GET /health", h.health)
-	mux.HandleFunc("GET /todos", h.list)
-	mux.HandleFunc("POST /todos", h.create)
-	mux.HandleFunc("GET /todos/{id}", h.get)
-	mux.HandleFunc("PATCH /todos/{id}", h.update)
-	mux.HandleFunc("DELETE /todos/{id}", h.delete)
+	mux.HandleFunc("GET /todos", protect(h.list))
+	mux.HandleFunc("POST /todos", protect(h.create))
+	mux.HandleFunc("GET /todos/{id}", protect(h.get))
+	mux.HandleFunc("PATCH /todos/{id}", protect(h.update))
+	mux.HandleFunc("DELETE /todos/{id}", protect(h.delete))
 }
 
 // ---------- 共通ヘルパー ----------
@@ -34,7 +36,9 @@ func (h *TodoHandler) Register(mux *http.ServeMux) {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status) // ボディを書く前に呼ぶ
-	json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("write response: %v", err)
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
@@ -85,7 +89,7 @@ func (h *TodoHandler) list(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "status は all / active / done のいずれかです")
 		return
 	}
-	todos, err := h.store.List(r.Context(), status)
+	todos, err := h.store.List(r.Context(), userID(r), status)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -106,7 +110,7 @@ func (h *TodoHandler) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 		return
 	}
-	todo, err := h.store.Create(r.Context(), title)
+	todo, err := h.store.Create(r.Context(), userID(r), title)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -121,7 +125,7 @@ func (h *TodoHandler) get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "IDが正しくありません")
 		return
 	}
-	todo, err := h.store.Get(r.Context(), id)
+	todo, err := h.store.Get(r.Context(), userID(r), id)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -157,7 +161,7 @@ func (h *TodoHandler) update(w http.ResponseWriter, r *http.Request) {
 		}
 		in.Title = &title
 	}
-	todo, err := h.store.Update(r.Context(), id, in)
+	todo, err := h.store.Update(r.Context(), userID(r), id, in)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -171,7 +175,7 @@ func (h *TodoHandler) delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "IDが正しくありません")
 		return
 	}
-	if err := h.store.Delete(r.Context(), id); err != nil {
+	if err := h.store.Delete(r.Context(), userID(r), id); err != nil {
 		writeStoreError(w, err)
 		return
 	}
